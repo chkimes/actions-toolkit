@@ -203,42 +203,49 @@ export async function downloadCacheHttpClient(
   }
 }
 
-async function downloadToWritable(
+/**
+ * Download the cache using the Actions toolkit http-client concurrently
+ *
+ * @param archiveLocation the URL for the cache
+ * @param archivePath the local path where the cache is saved
+ */
+export async function downloadCacheHttpClientConcurrent(
+  archiveLocation: string,
   archivePath: fs.PathLike,
-  archiveLocation: string
+  options: DownloadOptions
 ): Promise<void> {
-  let archiveDescriptor = fs.openSync(archivePath, 'wx')
+  const archiveDescriptor = fs.openSync(archivePath, 'w')
   try {
     const httpClient = new HttpClient('actions/cache', undefined, {
-      socketTimeout: 30
+      socketTimeout: options.timeoutInMs
     })
-    let res = await retryHttpClientResponse(
+    const res = await retryHttpClientResponse(
       'downloadCacheMetadata',
       async () => await httpClient.request('HEAD', archiveLocation, null, {})
     )
 
-    let lengthHeader = res.message.headers['content-length']
+    const lengthHeader = res.message.headers['content-length']
     if (lengthHeader === undefined || lengthHeader === null) {
-      throw 'Content-Length not provided'
+      throw new Error('Content-Length not found on blob response')
     }
 
-    let length = parseInt(lengthHeader)
+    const length = parseInt(lengthHeader)
     if (Number.isNaN(length)) {
-      throw 'Could not interpret Content-Length: ' + length
+      throw new Error(`Could not interpret Content-Length: ${length}`)
     }
 
-    let downloads: {
+    const downloads: {
       offset: number
       promiseGetter: () => Promise<DownloadSegment>
     }[] = []
     const blockSize = 4 * 1024 * 1024
 
     for (let offset = 0; offset < length; offset += blockSize) {
-      let count = Math.min(blockSize, length - offset)
+      const count = Math.min(blockSize, length - offset)
       downloads.push({
         offset,
         promiseGetter: async () => {
-          return await downloadSegment(
+          return await downloadSegmentRetry(
             httpClient,
             archiveLocation,
             offset,
@@ -251,29 +258,36 @@ async function downloadToWritable(
     // reverse to use .pop instead of .shift
     downloads.reverse()
     let actives = 0
+    let bytesDownloaded = 0
+    const progress = new DownloadProgress(length)
+    progress.startDisplayTimer()
+    const progressFn = progress.onProgress()
 
-    let activeDownloads: {[offset: number]: Promise<DownloadSegment>} = []
+    const activeDownloads: {[offset: number]: Promise<DownloadSegment>} = []
     let nextDownload:
       | {offset: number; promiseGetter: () => Promise<DownloadSegment>}
       | undefined
 
-    let waitAndWrite = async () => {
-      let finished = await Promise.race(Object.values(activeDownloads))
+    const waitAndWrite: () => Promise<void> = async () => {
+      const segment = await Promise.race(Object.values(activeDownloads))
       fs.writeSync(
         archiveDescriptor,
-        finished.buffer,
-        finished.offset,
-        finished.count
+        segment.buffer,
+        0,
+        segment.count,
+        segment.offset
       )
       actives--
-      delete activeDownloads[finished.offset]
+      delete activeDownloads[segment.offset]
+      bytesDownloaded += segment.count
+      progressFn({ loadedBytes: bytesDownloaded })
     }
 
     while ((nextDownload = downloads.pop())) {
       activeDownloads[nextDownload.offset] = nextDownload.promiseGetter()
       actives++
 
-      if (actives >= 10) {
+      if (actives >= (options.downloadConcurrency ?? 10)) {
         await waitAndWrite()
       }
     }
@@ -286,13 +300,41 @@ async function downloadToWritable(
   }
 }
 
+async function downloadSegmentRetry(
+  httpClient: HttpClient,
+  archiveLocation: string,
+  offset: number,
+  count: number
+): Promise<DownloadSegment> {
+  const retries = 5
+  let failures = 0
+
+  while (true) {
+    try {
+      const timeout = 30000
+      const result = await promiseWithTimeout(timeout, downloadSegment(httpClient, archiveLocation, offset, count))
+      if (typeof result === 'string') {
+        throw new Error('downloadSegmentRetry failed due to timeout')
+      }
+
+      return result
+    } catch (err) {
+      if (failures >= retries) {
+        throw err
+      }
+
+      failures++
+    }
+  }
+}
+
 async function downloadSegment(
   httpClient: HttpClient,
   archiveLocation: string,
   offset: number,
   count: number
 ): Promise<DownloadSegment> {
-  var partRes = await retryHttpClientResponse(
+  const partRes = await retryHttpClientResponse(
     'downloadCachePart',
     async () =>
       await httpClient.get(archiveLocation, {
@@ -396,12 +438,12 @@ export async function downloadCacheStorageSDK(
   }
 }
 
-const promiseWithTimeout = async (
+const promiseWithTimeout = async<T> (
   timeoutMs: number,
-  promise: Promise<Buffer>
-): Promise<unknown> => {
+  promise: Promise<T>
+): Promise<T | string> => {
   let timeoutHandle: NodeJS.Timeout
-  const timeoutPromise = new Promise(resolve => {
+  const timeoutPromise = new Promise<string>(resolve => {
     timeoutHandle = setTimeout(() => resolve('timeout'), timeoutMs)
   })
 

@@ -105,7 +105,7 @@ export class HttpClientResponse {
 
   async readBodyBuffer(): Promise<Buffer> {
     return new Promise<Buffer>(async resolve => {
-      let chunks: Buffer[] = []
+      const chunks: Buffer[] = []
 
       this.message.on('data', (chunk: Buffer) => {
         chunks.push(chunk)

@@ -239,7 +239,12 @@ describe('Download Tests', () => {
    */
   async function emptyMockReadBody(): Promise<string> {
     return new Promise(resolve => {
-      resolve()
+      resolve("")
+    })
+  }
+  async function emptyMockReadBodyBuffer(): Promise<Buffer> {
+    return new Promise(resolve => {
+      resolve(Buffer.alloc(0))
     })
   }
 
@@ -250,6 +255,7 @@ describe('Download Tests', () => {
     jest.spyOn(HttpClient.prototype, 'get').mockImplementationOnce(async () => {
       const mockMessage = new http.IncomingMessage(new net.Socket())
       let mockReadBody = emptyMockReadBody
+      let mockReadBodyBuffer = emptyMockReadBodyBuffer
 
       mockMessage.statusCode = 201
       const response: ListArtifactsResponse = {
@@ -285,7 +291,8 @@ describe('Download Tests', () => {
       return new Promise<HttpClientResponse>(resolve => {
         resolve({
           message: mockMessage,
-          readBody: mockReadBody
+          readBody: mockReadBody,
+          readBodyBuffer: emptyMockReadBodyBuffer
         })
       })
     })
@@ -319,7 +326,8 @@ describe('Download Tests', () => {
               fullResponse.length,
               actualResponse
             ),
-            readBody: emptyMockReadBody
+            readBody: emptyMockReadBody,
+            readBodyBuffer: emptyMockReadBodyBuffer
           }
         } else {
           return {
@@ -329,7 +337,8 @@ describe('Download Tests', () => {
               0,
               null
             ),
-            readBody: emptyMockReadBody
+            readBody: emptyMockReadBody,
+            readBodyBuffer: emptyMockReadBodyBuffer
           }
         }
       })
@@ -346,7 +355,8 @@ describe('Download Tests', () => {
             fullResponse.length,
             fullResponse
           ),
-          readBody: emptyMockReadBody
+          readBody: emptyMockReadBody,
+          readBodyBuffer: emptyMockReadBodyBuffer
         }
       })
     }
@@ -456,7 +466,8 @@ describe('Download Tests', () => {
       return new Promise<HttpClientResponse>(resolve => {
         resolve({
           message: mockMessage,
-          readBody: mockReadBody
+          readBody: mockReadBody,
+          readBodyBuffer: emptyMockReadBodyBuffer
         })
       })
     })
@@ -472,7 +483,8 @@ describe('Download Tests', () => {
       return new Promise<HttpClientResponse>(resolve => {
         resolve({
           message: mockMessage,
-          readBody: emptyMockReadBody
+          readBody: emptyMockReadBody,
+          readBodyBuffer: emptyMockReadBodyBuffer
         })
       })
     })
