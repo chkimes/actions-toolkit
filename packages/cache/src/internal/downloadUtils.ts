@@ -205,34 +205,45 @@ export async function downloadCacheHttpClient(
 
 async function downloadToWritable(
   archivePath: fs.PathLike,
-  archiveLocation: string,
+  archiveLocation: string
 ): Promise<void> {
   let archiveDescriptor = fs.openSync(archivePath, 'wx')
   try {
-    const httpClient = new HttpClient('actions/cache', undefined, { socketTimeout: 30 })
+    const httpClient = new HttpClient('actions/cache', undefined, {
+      socketTimeout: 30
+    })
     let res = await retryHttpClientResponse(
       'downloadCacheMetadata',
-      async () => await httpClient.request('HEAD', archiveLocation, null, {}))
-    
+      async () => await httpClient.request('HEAD', archiveLocation, null, {})
+    )
+
     let lengthHeader = res.message.headers['content-length']
     if (lengthHeader === undefined || lengthHeader === null) {
-      throw "Content-Length not provided"
+      throw 'Content-Length not provided'
     }
 
     let length = parseInt(lengthHeader)
     if (Number.isNaN(length)) {
-      throw "Could not interpret Content-Length: " + length
+      throw 'Could not interpret Content-Length: ' + length
     }
 
-    let downloads: { offset: number, promiseGetter: () => Promise<DownloadSegment>}[] = []
+    let downloads: {
+      offset: number
+      promiseGetter: () => Promise<DownloadSegment>
+    }[] = []
     const blockSize = 4 * 1024 * 1024
 
     for (let offset = 0; offset < length; offset += blockSize) {
-      let count = Math.min(blockSize, length - offset);
+      let count = Math.min(blockSize, length - offset)
       downloads.push({
         offset,
         promiseGetter: async () => {
-          return await downloadSegment(httpClient, archiveLocation, offset, count)
+          return await downloadSegment(
+            httpClient,
+            archiveLocation,
+            offset,
+            count
+          )
         }
       })
     }
@@ -241,30 +252,37 @@ async function downloadToWritable(
     downloads.reverse()
     let actives = 0
 
-    let activeDownloads: { [offset: number]: Promise<DownloadSegment> } = []
-    let nextDownload: {offset: number, promiseGetter: () => Promise<DownloadSegment>} | undefined
+    let activeDownloads: {[offset: number]: Promise<DownloadSegment>} = []
+    let nextDownload:
+      | {offset: number; promiseGetter: () => Promise<DownloadSegment>}
+      | undefined
 
     let waitAndWrite = async () => {
-      let finished = await Promise.race(Object.values(activeDownloads));
-      fs.writeSync(archiveDescriptor, finished.buffer, finished.offset, finished.count)
-      actives--;
+      let finished = await Promise.race(Object.values(activeDownloads))
+      fs.writeSync(
+        archiveDescriptor,
+        finished.buffer,
+        finished.offset,
+        finished.count
+      )
+      actives--
       delete activeDownloads[finished.offset]
     }
 
-    while (nextDownload = downloads.pop()) {
-      activeDownloads[nextDownload.offset] = (nextDownload.promiseGetter())
+    while ((nextDownload = downloads.pop())) {
+      activeDownloads[nextDownload.offset] = nextDownload.promiseGetter()
       actives++
 
       if (actives >= 10) {
-        await waitAndWrite();
+        await waitAndWrite()
       }
     }
 
     while (actives > 0) {
-      await waitAndWrite();
+      await waitAndWrite()
     }
   } finally {
-    fs.closeSync(archiveDescriptor);
+    fs.closeSync(archiveDescriptor)
   }
 }
 
@@ -276,7 +294,10 @@ async function downloadSegment(
 ): Promise<DownloadSegment> {
   var partRes = await retryHttpClientResponse(
     'downloadCachePart',
-    async () => await httpClient.get(archiveLocation, { 'Range': `bytes=${offset}-${offset+count-1}` })
+    async () =>
+      await httpClient.get(archiveLocation, {
+        Range: `bytes=${offset}-${offset + count - 1}`
+      })
   )
   return {
     offset,
@@ -285,8 +306,7 @@ async function downloadSegment(
   }
 }
 
-declare class DownloadSegment
-{
+declare class DownloadSegment {
   offset: number
   count: number
   buffer: Buffer

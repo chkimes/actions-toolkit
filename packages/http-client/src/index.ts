@@ -108,11 +108,11 @@ export class HttpClientResponse {
       let chunks: Buffer[] = []
 
       this.message.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+        chunks.push(chunk)
       })
 
       this.message.on('end', () => {
-        resolve(Buffer.concat(chunks));
+        resolve(Buffer.concat(chunks))
       })
     })
   }
