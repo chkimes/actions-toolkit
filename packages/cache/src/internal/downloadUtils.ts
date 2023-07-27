@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import {HttpClient, HttpClientResponse} from '@actions/http-client'
+import {HttpClient, HttpClientResponse} from '@chkimes/actions-http-client'
 import {BlockBlobClient} from '@azure/storage-blob'
 import {TransferProgressEvent} from '@azure/ms-rest-js'
 import * as buffer from 'buffer'
@@ -214,11 +214,12 @@ export async function downloadCacheHttpClientConcurrent(
   archivePath: fs.PathLike,
   options: DownloadOptions
 ): Promise<void> {
-  const archiveDescriptor = fs.openSync(archivePath, 'w')
+  const archiveDescriptor = await fs.promises.open(archivePath, 'w')
+  const httpClient = new HttpClient('actions/cache', undefined, {
+    socketTimeout: options.timeoutInMs,
+    keepAlive: true
+  })
   try {
-    const httpClient = new HttpClient('actions/cache', undefined, {
-      socketTimeout: options.timeoutInMs
-    })
     const res = await retryHttpClientResponse(
       'downloadCacheMetadata',
       async () => await httpClient.request('HEAD', archiveLocation, null, {})
@@ -270,13 +271,7 @@ export async function downloadCacheHttpClientConcurrent(
 
     const waitAndWrite: () => Promise<void> = async () => {
       const segment = await Promise.race(Object.values(activeDownloads))
-      fs.writeSync(
-        archiveDescriptor,
-        segment.buffer,
-        0,
-        segment.count,
-        segment.offset
-      )
+      await archiveDescriptor.write(segment.buffer, 0, segment.count, segment.offset);
       actives--
       delete activeDownloads[segment.offset]
       bytesDownloaded += segment.count
@@ -296,7 +291,8 @@ export async function downloadCacheHttpClientConcurrent(
       await waitAndWrite()
     }
   } finally {
-    fs.closeSync(archiveDescriptor)
+    httpClient.dispose()
+    await archiveDescriptor.close()
   }
 }
 
